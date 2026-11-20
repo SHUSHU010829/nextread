@@ -1,7 +1,7 @@
 import { supabase } from "./supabase";
 import type { Book, BookInput, EnrichResult, ImportResult, LookupResult } from "./types";
 
-const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080").replace(/\/$/, "");
+const API_URL = "/api";
 
 export class ApiError extends Error {
   constructor(

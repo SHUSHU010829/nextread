@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --experimental-strip-types lib/*.test.ts"
+    "test": "node --test --experimental-strip-types lib/*.test.ts lib/server/*.test.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.119.2",

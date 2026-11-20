@@ -46,16 +46,14 @@ Nov 20, 2026 · @Shuyuan Chuang
 
 ## 技術架構
 
-沿用 semantic notes 專案的技術：Next.js + Go + Supabase pgvector + Voyage，經驗可以直接套用。
+Next.js（含 Route Handler 當後端）+ Supabase pgvector + Voyage，整個專案部署在 Vercel。
 
-[embedded content: 系統架構 · 前端、Go API、資料庫與三個外部服務]
-
-前端只呼叫 Go API；外部的 API key 和推薦運算都留在後端，虛線的 LLM 到 Phase 4 才會加入。
+前端只呼叫自己的 `/api/*` Route Handler；外部的 API key 和推薦運算都留在伺服器端，LLM 到 Phase 4 才會加入。
 
 | 層 | 選型 | 理由 |
 | --- | --- | --- |
 | 前端 | Next.js + TypeScript | 熟悉，可以部署在 Vercel |
-| 後端 | Go | 封裝外部 API 與推薦邏輯 |
+| 後端 | Next.js Route Handler | 跟前端一起部署在 Vercel，封裝外部 API 與推薦邏輯 |
 | 資料庫 | Supabase Postgres + pgvector | Auth、RLS、向量查詢一次解決 |
 | Embedding | Voyage AI | 已在 semantic notes 用過 |
 | 書籍資料 | Google Books、Open Library | 免費、可用 ISBN 查詢 |
@@ -125,7 +123,7 @@ p = \mathrm{normalize}\left(\sum_i r_i \cdot e_i\right), \quad r_i \in \{1, 0, -
 
 **Phase 2：書籍資料帶入**
 
-- [x] Go `/lookup`：Google Books 為主，Open Library 備援
+- [x] `/api/lookup`：Google Books 為主，Open Library 備援
 - [x] 新增書時從搜尋結果選一本，自動填入封面、簡介、分類
 - [x] 查不到時可以手動貼簡介
 - [x] 曾經匯入的書批次補上資料
@@ -161,9 +159,9 @@ p = \mathrm{normalize}\left(\sum_i r_i \cdot e_i\right), \quad r_i \in \{1, 0, -
 待決問題：
 
 - [ ] Voyage 要用哪個模型（決定向量維度）？中文效果需要實測。
-- [x] 後端用 Go 獨立服務，還是先用 Next.js Route Handler 就好？→ Go 獨立服務；Go 把使用者的 access token 轉給 Supabase PostgREST，RLS 照常生效，後端不需要 service role key。
+- [x] 後端用 Go 獨立服務，還是先用 Next.js Route Handler 就好？→ Next.js Route Handler，前後端一起部署在 Vercel。伺服器端用使用者自己的 access token 查詢 Supabase，RLS 照常生效，不需要 service role key。
 - [ ] 候選書的來源：只用「想讀」，還是要匯入外部書單？
-- [ ] 部署位置：Vercel，還是放到自己的 VPS？
+- [x] 部署位置：Vercel，還是放到自己的 VPS？→ Vercel
 
 ## 成功指標
 
