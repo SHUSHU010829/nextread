@@ -1,5 +1,5 @@
 // Vercel Blob：書櫃存成一個私有的 JSON 檔，用 etag 做條件式寫入。
-import { BlobPreconditionFailedError, get, put } from "@vercel/blob";
+import { BlobNotFoundError, BlobPreconditionFailedError, get, head, put } from "@vercel/blob";
 import type { Book } from "../types.ts";
 import { decodeShelf, encodeShelf, StoreConflictError, type BookStore, type Snapshot } from "./store.ts";
 
@@ -15,11 +15,20 @@ export class BlobStore implements BookStore {
   }
 
   async read(): Promise<Snapshot> {
-    // useCache: false 直接讀來源，確保拿到最新版本
+    // etag 要用 Blob API（head）回傳的值，跟 put 的 ifMatch 比對的是同一種格式；
+    // 下載檔案時 HTTP header 裡的 etag 格式可能不同，拿來當 ifMatch 會每次都被判定為衝突。
+    // 先取 etag 再下載內容：如果中間檔案被改，寫入會失敗並重試，不會蓋掉別人的修改。
+    let etag: string;
+    try {
+      etag = (await head(this.pathname, this.auth)).etag;
+    } catch (e) {
+      if (e instanceof BlobNotFoundError) return { books: [], etag: null };
+      throw e;
+    }
     const res = await get(this.pathname, { access: "private", useCache: false, ...this.auth });
-    if (!res || res.statusCode !== 200) return { books: [], etag: null };
+    if (!res || res.statusCode !== 200) throw new Error(`讀取書櫃失敗：${res ? res.statusCode : "not found"}`);
     const text = await new Response(res.stream).text();
-    return { books: decodeShelf(text), etag: res.blob.etag };
+    return { books: decodeShelf(text), etag };
   }
 
   async write(books: Book[], etag: string | null): Promise<void> {
@@ -33,8 +42,12 @@ export class BlobStore implements BookStore {
         ...(etag ? { ifMatch: etag } : { allowOverwrite: false }),
       });
     } catch (e) {
-      if (e instanceof BlobPreconditionFailedError) throw new StoreConflictError();
-      if (!etag && e instanceof Error && /already exists/i.test(e.message)) throw new StoreConflictError();
+      const conflict =
+        e instanceof BlobPreconditionFailedError || (!etag && e instanceof Error && /already exists/i.test(e.message));
+      if (conflict) {
+        console.warn("blob write conflict", { etag, error: (e as Error).message });
+        throw new StoreConflictError();
+      }
       throw e;
     }
   }
