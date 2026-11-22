@@ -21,7 +21,7 @@ export function enrichFields(b: Book, r: LookupResult): Partial<Book> {
   return f;
 }
 
-/** update 回傳 Supabase 的錯誤碼（23505 代表 ISBN 重複），成功時回傳 null。 */
+/** 寫入欄位；回傳 {code: "23505"} 代表 ISBN 跟別本書重複，成功時回傳 null。 */
 export type Updater = (id: string, fields: Partial<Book>) => Promise<{ code?: string } | null>;
 
 async function enrichOne(b: Book, providers: Provider[], update: Updater): Promise<EnrichResult["results"][number]> {
@@ -55,21 +55,30 @@ async function enrichOne(b: Book, providers: Provider[], update: Updater): Promi
   return { ...out, status: "updated", source: match.source };
 }
 
+/**
+ * 替缺資料的書查詢資料。過了 deadline（毫秒時間戳）就不再開始查新的書，
+ * 讓呼叫端在函式逾時前把已完成的部分存起來；沒處理到的書計入 remaining。
+ */
 export async function enrichBooks(
   books: Book[],
   providers: Provider[],
   update: Updater,
-  concurrency = 4,
+  opts: { concurrency?: number; deadline?: number; now?: () => number } = {},
 ): Promise<EnrichResult> {
+  const { concurrency = 4, deadline = Infinity, now = Date.now } = opts;
   const todo = books.filter(needsEnrich);
-  const results: EnrichResult["results"] = new Array(todo.length);
+  const results: EnrichResult["results"] = [];
   let next = 0;
   const worker = async () => {
-    while (next < todo.length) {
-      const i = next++;
-      results[i] = await enrichOne(todo[i], providers, update);
+    while (next < todo.length && now() < deadline) {
+      const b = todo[next++];
+      results.push(await enrichOne(b, providers, update));
     }
   };
   await Promise.all(Array.from({ length: Math.min(concurrency, todo.length) }, worker));
-  return { updated: results.filter((r) => r.status === "updated").length, results };
+  return {
+    updated: results.filter((r) => r.status === "updated").length,
+    remaining: todo.length - results.length,
+    results,
+  };
 }

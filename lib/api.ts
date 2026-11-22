@@ -1,7 +1,4 @@
-import { supabase } from "./supabase";
 import type { Book, BookInput, EnrichResult, ImportResult, LookupResult } from "./types";
-
-const API_URL = "/api";
 
 export class ApiError extends Error {
   constructor(
@@ -12,28 +9,35 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const session = supabase ? (await supabase.auth.getSession()).data.session : null;
-  const headers: Record<string, string> = {};
-  if (session) headers.Authorization = `Bearer ${session.access_token}`;
-  if (init.body) headers["Content-Type"] = "application/json";
+/** 登入過期時通知頁面回到登入畫面。 */
+export const UNAUTHORIZED_EVENT = "nextread:unauthorized";
 
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(API_URL + path, { ...init, headers: { ...headers, ...(init.headers as object) } });
+    res = await fetch("/api" + path, {
+      ...init,
+      credentials: "same-origin",
+      headers: init.body ? { "Content-Type": "application/json" } : undefined,
+    });
   } catch {
     throw new ApiError("無法連線到伺服器", 0);
   }
   if (res.status === 204) return undefined as T;
   const body = await res.json().catch(() => null);
   if (!res.ok) {
-    if (res.status === 401 && supabase) await supabase.auth.signOut();
+    if (res.status === 401 && path !== "/session") window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
     throw new ApiError(body?.error ?? `HTTP ${res.status}`, res.status);
   }
   return body as T;
 }
 
 export const api = {
+  session: () => request<{ authenticated: boolean }>("/session"),
+  login: (password: string) =>
+    request<{ authenticated: boolean }>("/session", { method: "POST", body: JSON.stringify({ password }) }),
+  logout: () => request<{ authenticated: boolean }>("/session", { method: "DELETE" }),
+
   listBooks: () => request<Book[]>("/books"),
   createBook: (input: BookInput) => request<Book>("/books", { method: "POST", body: JSON.stringify(input) }),
   updateBook: (id: string, input: BookInput) =>
@@ -44,6 +48,8 @@ export const api = {
     request<EnrichResult>("/books/enrich", { method: "POST", body: JSON.stringify(ids ? { ids } : {}) }),
   lookup: (q: string) => request<LookupResult[]>(`/lookup?q=${encodeURIComponent(q)}`),
 };
+
+export const EXPORT_URL = "/api/books/export";
 
 export function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);

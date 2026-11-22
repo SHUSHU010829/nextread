@@ -1,8 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, errorMessage } from "@/lib/api";
-import { supabase } from "@/lib/supabase";
+import { api, errorMessage, EXPORT_URL } from "@/lib/api";
 import { applyFilter, DEFAULT_FILTER, shelfStats, type RatingFilter, type ShelfFilter, type SortKey, type StatusFilter } from "@/lib/shelf";
 import { RATING_LABEL, STATUS_LABEL, type Book } from "@/lib/types";
 import Seg from "./Seg";
@@ -30,7 +29,7 @@ const SORT_OPTS: { value: SortKey; label: string }[] = [
 
 type Editing = { book: Book | null } | null;
 
-export default function Shelf({ email }: { email: string }) {
+export default function Shelf({ onLogout }: { onLogout: () => void }) {
   const [books, setBooks] = useState<Book[] | null>(null);
   const [loadError, setLoadError] = useState("");
   const [filter, setFilter] = useState<ShelfFilter>(DEFAULT_FILTER);
@@ -77,7 +76,8 @@ export default function Shelf({ email }: { email: string }) {
       const notFound = r.results.filter((x) => x.status !== "updated").map((x) => `《${x.title}》`);
       setNotice(
         `補上了 ${r.updated} 本書的資料。` +
-          (notFound.length ? `查不到：${notFound.slice(0, 8).join("")}${notFound.length > 8 ? ` 等 ${notFound.length} 本` : ""}，可以打開書手動貼簡介。` : ""),
+          (notFound.length ? `查不到：${notFound.slice(0, 8).join("")}${notFound.length > 8 ? ` 等 ${notFound.length} 本` : ""}，可以打開書手動貼簡介。` : "") +
+          (r.remaining ? `還有 ${r.remaining} 本這次沒處理到，再按一次「補資料」繼續。` : ""),
       );
       await load();
     } catch (e) {
@@ -183,8 +183,15 @@ export default function Shelf({ email }: { email: string }) {
       </div>
 
       <p className="stats" style={{ marginTop: 24, textAlign: "center" }}>
-        {email} ·{" "}
-        <button className="link" onClick={() => supabase?.auth.signOut()}>
+        {books && books.length > 0 && (
+          <>
+            <a className="link" href={EXPORT_URL} download>
+              匯出 JSON 備份
+            </a>
+            {" · "}
+          </>
+        )}
+        <button className="link" onClick={() => api.logout().finally(onLogout)}>
           登出
         </button>
       </p>

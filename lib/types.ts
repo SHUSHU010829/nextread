@@ -3,7 +3,6 @@ export type Rating = 1 | 0 | -1 | null;
 
 export interface Book {
   id: string;
-  user_id: string;
   title: string;
   author: string;
   isbn: string | null;
@@ -53,6 +52,8 @@ export interface ImportResult {
 
 export interface EnrichResult {
   updated: number;
+  /** 時間不夠、這次沒處理到的書。 */
+  remaining: number;
   results: { id: string; title: string; status: "updated" | "not_found" | "error"; source?: string }[];
 }
 

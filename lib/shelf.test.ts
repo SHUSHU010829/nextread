@@ -6,7 +6,7 @@ import type { Book } from "./types.ts";
 function book(p: Partial<Book>): Book {
   return {
     id: p.title ?? "x",
-    user_id: "u",
+    
     title: "x",
     author: "",
     isbn: null,

@@ -1,8 +1,9 @@
-import { authed, handle, HttpError, json } from "@/lib/server/http";
+import { requireAuth } from "@/lib/server/auth";
+import { handle, HttpError, json } from "@/lib/server/http";
 import { defaultProviders, isEmptyQuery, parseQuery, searchAll } from "@/lib/server/lookup";
 
 export const GET = handle(async (req) => {
-  await authed(req);
+  requireAuth(req);
   const params = new URL(req.url).searchParams;
   let q = parseQuery(params.get("q") ?? "");
   const title = params.get("title")?.trim();

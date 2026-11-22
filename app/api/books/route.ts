@@ -1,21 +1,19 @@
+import { requireAuth } from "@/lib/server/auth";
 import { toRow } from "@/lib/server/books";
-import { authed, dbError, handle, json, readJSON } from "@/lib/server/http";
+import { getStore } from "@/lib/server/get-store";
+import { handle, json, readJSON } from "@/lib/server/http";
+import { createBook } from "@/lib/server/repo";
+import { mutate } from "@/lib/server/store";
 
 export const GET = handle(async (req) => {
-  const { db } = await authed(req);
-  const { data, error } = await db
-    .from("books")
-    .select("*")
-    .order("finished_at", { ascending: false, nullsFirst: false })
-    .order("created_at", { ascending: false });
-  if (error) throw dbError(error);
-  return json(data ?? []);
+  requireAuth(req);
+  const { books } = await getStore().read();
+  return json(books);
 });
 
 export const POST = handle(async (req) => {
-  const { db } = await authed(req);
+  requireAuth(req);
   const row = toRow(await readJSON(req));
-  const { data, error } = await db.from("books").insert(row).select().single();
-  if (error) throw dbError(error);
-  return json(data, 201);
+  const book = await mutate(getStore(), (books) => createBook(books, row));
+  return json(book, 201);
 });

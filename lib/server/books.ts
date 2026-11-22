@@ -1,7 +1,8 @@
 // 書籍輸入驗證、正規化，以及 artifact 書櫃資料的匯入對應。
 import type { Book, Status } from "../types.ts";
+import { ValidationError } from "./errors.ts";
 
-export class ValidationError extends Error {}
+export { ValidationError };
 
 const STATUSES: Status[] = ["want", "reading", "read"];
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;

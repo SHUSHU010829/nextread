@@ -6,7 +6,7 @@ import type { Provider } from "./lookup.ts";
 
 function book(p: Partial<Book>): Book {
   return {
-    id: "x", user_id: "u", title: "x", author: "", isbn: null, cover_url: "", description: "", categories: [],
+    id: "x",  title: "x", author: "", isbn: null, cover_url: "", description: "", categories: [],
     status: "read", rating: null, finished_at: null, note: "", created_at: "", updated_at: "", ...p,
   };
 }
@@ -42,4 +42,15 @@ test("enrich fills only empty fields and skips duplicate ISBN", async () => {
   assert.deepEqual(updates["4"], { cover_url: "https://img/3.jpg", categories: ["Fiction"], author: "劉慈欣" });
   assert.equal(updates["2"], undefined);
   assert.equal(res.results.find((r) => r.id === "2")?.status, "not_found");
+});
+
+test("enrich stops starting new lookups after the deadline", async () => {
+  let t = 0;
+  const books = [book({ id: "1", title: "三體" }), book({ id: "2", title: "三體" }), book({ id: "3", title: "三體" })];
+  const res = await enrichBooks(books, [provider], async () => {
+    t += 10;
+    return null;
+  }, { concurrency: 1, deadline: 15, now: () => t });
+  assert.equal(res.results.length, 2);
+  assert.equal(res.remaining, 1);
 });

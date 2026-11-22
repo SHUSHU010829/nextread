@@ -1,23 +1,23 @@
+import { requireAuth } from "@/lib/server/auth";
 import { toRow } from "@/lib/server/books";
-import { authed, dbError, handle, HttpError, json, readJSON } from "@/lib/server/http";
+import { getStore } from "@/lib/server/get-store";
+import { handle, json, readJSON } from "@/lib/server/http";
+import { deleteBook, updateBook } from "@/lib/server/repo";
+import { mutate } from "@/lib/server/store";
 
 type Ctx = { params: Promise<{ id: string }> };
 
 export const PUT = handle(async (req, { params }: Ctx) => {
-  const { db } = await authed(req);
+  requireAuth(req);
   const { id } = await params;
   const row = toRow(await readJSON(req));
-  const { data, error } = await db.from("books").update(row).eq("id", id).select();
-  if (error) throw dbError(error);
-  if (!data?.length) throw new HttpError(404, "找不到這本書");
-  return json(data[0]);
+  const book = await mutate(getStore(), (books) => updateBook(books, id, row));
+  return json(book);
 });
 
 export const DELETE = handle(async (req, { params }: Ctx) => {
-  const { db } = await authed(req);
+  requireAuth(req);
   const { id } = await params;
-  const { data, error } = await db.from("books").delete().eq("id", id).select("id");
-  if (error) throw dbError(error);
-  if (!data?.length) throw new HttpError(404, "找不到這本書");
+  await mutate(getStore(), (books) => deleteBook(books, id));
   return new Response(null, { status: 204 });
 });

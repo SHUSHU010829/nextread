@@ -36,7 +36,7 @@ Nov 20, 2026 · @Shuyuan Chuang
 | 書櫃列表 | 搜尋書名或作者，依狀態、評價篩選，依讀完日期排序 | Phase 1 |
 | 新增／編輯書籍 | 書名、作者、狀態（想讀／在讀／讀完）、評價、讀完日期、心得 | Phase 1 |
 | 三種評價 | 喜歡 / 沒想法 / 不喜歡，也可以不評價（想讀的書） | Phase 1 |
-| 登入與雲端儲存 | 資料存在 Supabase，換裝置也能用 | Phase 1 |
+| 登入與雲端儲存 | 密碼登入，資料存在 Vercel Blob，換裝置也能用 | Phase 1 |
 | 匯入 artifact 資料 | 把目前 artifact 書櫃的紀錄轉進正式版 | Phase 1 |
 | 書籍資料自動帶入 | 輸入 ISBN 或書名，從 Google Books / Open Library 帶入封面、簡介、分類 | Phase 2 |
 | 手動補簡介 | 查不到的中文書，可以自己貼上簡介 | Phase 2 |
@@ -46,7 +46,7 @@ Nov 20, 2026 · @Shuyuan Chuang
 
 ## 技術架構
 
-Next.js（含 Route Handler 當後端）+ Supabase pgvector + Voyage，整個專案部署在 Vercel。
+Next.js（含 Route Handler 當後端）+ Vercel Blob + Voyage，整個專案部署在 Vercel。目前只有一位使用者，所以不用資料庫：整個書櫃存成一個 JSON 檔。
 
 前端只呼叫自己的 `/api/*` Route Handler；外部的 API key 和推薦運算都留在伺服器端，LLM 到 Phase 4 才會加入。
 
@@ -54,18 +54,18 @@ Next.js（含 Route Handler 當後端）+ Supabase pgvector + Voyage，整個專
 | --- | --- | --- |
 | 前端 | Next.js + TypeScript | 熟悉，可以部署在 Vercel |
 | 後端 | Next.js Route Handler | 跟前端一起部署在 Vercel，封裝外部 API 與推薦邏輯 |
-| 資料庫 | Supabase Postgres + pgvector | Auth、RLS、向量查詢一次解決 |
+| 儲存 | Vercel Blob（一個私有 JSON 檔） | 單人使用不需要資料庫；用 etag 條件式寫入避免多裝置互相覆蓋 |
+| 登入 | 單一密碼（環境變數）+ 簽名 cookie | 只有一位使用者，不需要帳號系統 |
 | Embedding | Voyage AI | 已在 semantic notes 用過 |
 | 書籍資料 | Google Books、Open Library | 免費、可用 ISBN 查詢 |
 
 ## 資料模型
 
-主要只有一張 `books` 表，embedding 直接存在同一列，不另外開表。
+書櫃存成一個 JSON 檔（`{"version": 1, "books": [...]}`），每本書的欄位如下。embedding 到 Phase 3 另存一個檔案，避免每次讀書櫃都要載入向量。
 
 | 欄位 | 型別 | 說明 |
 | --- | --- | --- |
 | id | uuid | 主鍵 |
-| user\_id | uuid | Supabase Auth 使用者，搭配 RLS |
 | title | text | 書名，必填 |
 | author | text | 作者 |
 | isbn | text | 可空，用來查資料與去重 |
@@ -76,10 +76,9 @@ Next.js（含 Route Handler 當後端）+ Supabase pgvector + Voyage，整個專
 | rating | smallint | 1 喜歡 / 0 沒想法 / -1 不喜歡 / null 未評價 |
 | finished\_at | date | 讀完日期 |
 | note | text | 心得 |
-| embedding | vector(1024) | Voyage embedding（Phase 3），維度依最後選用的模型為準；Phase 1 的 migration 先不建 |
 | created\_at / updated\_at | timestamptz | 建立／更新時間 |
 
-候選書（推薦池）一開始就用 `status = want` 的書。之後如果要匯入外部書單，再加一張 `candidates` 表，欄位跟 `books` 的書籍資料部分相同。
+候選書（推薦池）一開始就用 `status = want` 的書。之後如果要匯入外部書單，再另存一個 `candidates.json`，欄位跟書籍資料部分相同。
 
 ## 推薦演算法
 
@@ -88,7 +87,7 @@ Next.js（含 Route Handler 當後端）+ Supabase pgvector + Voyage，整個專
 1. **Embedding 文字**：書名 + 作者 + 分類 + 簡介；已讀的書再加上心得。存書或修改時重算。
 2. **偏好向量**：喜歡 +1、沒想法 0、不喜歡 −1，取加權平均後正規化。
 3. **預測分數**：候選書與偏好向量的 cosine 相似度，線性映射到 0–100。
-4. **推薦**：用 pgvector 對候選池排序，取前 N 名。
+4. **推薦**：對候選池逐本計算分數，取前 N 名。書量在幾千本以內，直接在伺服器端計算即可，不需要向量資料庫。
 
 ```latex
 p = \mathrm{normalize}\left(\sum_i r_i \cdot e_i\right), \quad r_i \in \{1, 0, -1\}
@@ -113,8 +112,8 @@ p = \mathrm{normalize}\left(\sum_i r_i \cdot e_i\right), \quad r_i \in \{1, 0, -
 
 **Phase 1：紀錄 MVP**
 
-- [x] Supabase 建立 `books` 表與 RLS
-- [x] Supabase Auth 登入
+- [x] 書櫃儲存（Vercel Blob JSON 檔，本機開發存在 `.data/`）
+- [x] 密碼登入
 - [x] 書櫃列表：搜尋、篩選、排序
 - [x] 新增／編輯／刪除書籍
 - [x] 從 artifact 匯入現有資料
@@ -132,7 +131,7 @@ p = \mathrm{normalize}\left(\sum_i r_i \cdot e_i\right), \quad r_i \in \{1, 0, -
 
 **Phase 3：Embedding 推薦**
 
-- [ ] 存書時用 Voyage 產生 embedding，存進 pgvector
+- [ ] 存書時用 Voyage 產生 embedding，另存一個 `embeddings.json`
 - [ ] 計算偏好向量
 - [ ] `/predict`：單本書的 0–100 分
 - [ ] `/recommend`：對「想讀」清單排序
@@ -144,8 +143,8 @@ p = \mathrm{normalize}\left(\sum_i r_i \cdot e_i\right), \quad r_i \in \{1, 0, -
 
 - [ ] LLM 重排序前 20 名，並寫出推薦理由
 - [ ] 調整「沒想法」的權重，或改用 k 近鄰
-- [ ] 擴充候選池（`candidates` 表）
-- [ ] 匯出／匯入
+- [ ] 擴充候選池（`candidates.json`）
+- [x] 匯出／匯入
 
 ## 風險與待決問題
 
@@ -154,12 +153,13 @@ p = \mathrm{normalize}\left(\sum_i r_i \cdot e_i\right), \quad r_i \in \{1, 0, -
 | 中文書在 Google Books / Open Library 資料少 | 簡介空白，embedding 品質差 | 允許手動貼簡介；心得也納入 embedding |
 | 評價數太少 | 偏好向量不穩定，分數沒參考性 | 先用 artifact 累積 30 本以上再開 Phase 3 |
 | 口味多元 | 平均後的偏好向量變模糊 | Phase 4 改用 k 近鄰或多個中心點 |
-| 候選池太小 | 只能在「想讀」裡排序，推薦不到新書 | 之後加入 `candidates` 表，或由 LLM 先提名、再用 embedding 打分 |
+| 候選池太小 | 只能在「想讀」裡排序，推薦不到新書 | 之後加入 `candidates.json`，或由 LLM 先提名、再用 embedding 打分 |
 
 待決問題：
 
 - [ ] Voyage 要用哪個模型（決定向量維度）？中文效果需要實測。
-- [x] 後端用 Go 獨立服務，還是先用 Next.js Route Handler 就好？→ Next.js Route Handler，前後端一起部署在 Vercel。伺服器端用使用者自己的 access token 查詢 Supabase，RLS 照常生效，不需要 service role key。
+- [x] 後端用 Go 獨立服務，還是先用 Next.js Route Handler 就好？→ Next.js Route Handler，前後端一起部署在 Vercel。
+- [x] 資料存哪裡？→ 單人使用，不用 Supabase：書櫃存成 Vercel Blob 上的一個私有 JSON 檔，密碼登入。之後要多人使用再換資料庫，用匯出／匯入搬資料。
 - [ ] 候選書的來源：只用「想讀」，還是要匯入外部書單？
 - [x] 部署位置：Vercel，還是放到自己的 VPS？→ Vercel
 

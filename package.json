@@ -10,7 +10,7 @@
     "test": "node --test --experimental-strip-types lib/*.test.ts lib/server/*.test.ts"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.119.2",
+    "@vercel/blob": "^2.9.0",
     "next": "^16.4.6",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
