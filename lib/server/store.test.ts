@@ -8,7 +8,7 @@ import { FileStore, MemoryStore, mutate, StoreConflictError, type BookStore } fr
 
 const book = (id: string): Book => ({
   id, title: id, author: "", isbn: null, cover_url: "", description: "", categories: [], status: "read",
-  rating: null, finished_at: null, note: "", created_at: "", updated_at: "",
+  rating: null, finished_at: null, note: "", rec_score: null, rec_reason: "", rec_at: null, created_at: "", updated_at: "",
 });
 
 test("FileStore round trip and conflict detection", async () => {

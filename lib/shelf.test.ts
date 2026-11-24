@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { applyFilter, applyLookup, DEFAULT_FILTER, emptyInput, parseCategories, shelfStats } from "./shelf.ts";
+import { applyFilter, applyLookup, DEFAULT_FILTER, emptyInput, parseCategories, shelfStats, wantList } from "./shelf.ts";
 import type { Book } from "./types.ts";
 
 function book(p: Partial<Book>): Book {
@@ -17,6 +17,9 @@ function book(p: Partial<Book>): Book {
     rating: null,
     finished_at: null,
     note: "",
+    rec_score: null,
+    rec_reason: "",
+    rec_at: null,
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-01T00:00:00Z",
     ...p,
@@ -45,7 +48,28 @@ test("filters by status, rating and query", () => {
 });
 
 test("stats", () => {
-  assert.deepEqual(shelfStats(books), { total: 4, read: 3, liked: 1, rated: 3, missingInfo: 3 });
+  const st = shelfStats(
+    [...books, book({ title: "E", status: "dropped", rating: -1, finished_at: "2025-01-01" }), book({ title: "F", rating: 2, finished_at: "2026-02-01" })],
+    2026,
+  );
+  assert.equal(st.total, 6);
+  assert.equal(st.read, 4);
+  assert.equal(st.dropped, 1);
+  assert.equal(st.superLiked, 1);
+  assert.equal(st.liked, 1);
+  assert.equal(st.rated, 5);
+  assert.equal(st.readThisYear, 3);
+  assert.equal(st.want, 1);
+});
+
+test("wantList sorts by recommendation score", () => {
+  const list = wantList([
+    book({ title: "W1", status: "want", rec_score: 60, created_at: "2026-01-03T00:00:00Z" }),
+    book({ title: "W2", status: "want", rec_score: null, created_at: "2026-01-05T00:00:00Z" }),
+    book({ title: "W3", status: "want", rec_score: 90, created_at: "2026-01-01T00:00:00Z" }),
+    book({ title: "R", status: "read" }),
+  ]);
+  assert.deepEqual(list.map((b) => b.title), ["W3", "W1", "W2"]);
 });
 
 test("applyLookup keeps existing values when result is empty", () => {

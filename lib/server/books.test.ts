@@ -38,7 +38,9 @@ test("toRow rejects invalid input", () => {
   for (const bad of [
     { title: "  " },
     { title: "x", status: "done" },
-    { title: "x", rating: 2 },
+    { title: "x", status: "read", rating: 3 },
+    { title: "x", status: "done" },
+    { title: "x", rec_score: 101 },
     { title: "x", isbn: "abc" },
     { title: "x", finished_at: "2026/10/01" },
     { title: "x", finished_at: "2026-13-01" },
@@ -77,4 +79,16 @@ test("import wrapped snake_case data", () => {
   assert.throws(() => parseImport(`{"foo":1}`), ValidationError);
   assert.throws(() => parseImport("  "), ValidationError);
   assert.throws(() => parseImport("not json"), ValidationError);
+});
+
+test("rating rules by status", () => {
+  assert.equal(toRow({ title: "x", status: "read", rating: 2 }).rating, 2);
+  assert.equal(toRow({ title: "x", status: "dropped" }).rating, -1); // 棄讀預設不喜歡
+  assert.equal(toRow({ title: "x", status: "dropped", rating: 0 }).rating, 0); // 可以自己改
+  assert.equal(toRow({ title: "x", status: "want", rating: 1 }).rating, null); // 想讀、在讀不能評價
+  assert.equal(toRow({ title: "x", status: "reading", rating: 1 }).rating, null);
+  const r = toRow({ title: "x", status: "want", rec_score: 77.6, rec_reason: " 理由 ", rec_at: "2026-11-24T10:00:00Z" });
+  assert.equal(r.rec_score, 78);
+  assert.equal(r.rec_reason, "理由");
+  assert.equal(r.rec_at, "2026-11-24T10:00:00.000Z");
 });

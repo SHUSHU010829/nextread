@@ -7,7 +7,7 @@ import type { Provider } from "./lookup.ts";
 function book(p: Partial<Book>): Book {
   return {
     id: "x",  title: "x", author: "", isbn: null, cover_url: "", description: "", categories: [],
-    status: "read", rating: null, finished_at: null, note: "", created_at: "", updated_at: "", ...p,
+    status: "read", rating: null, finished_at: null, note: "", rec_score: null, rec_reason: "", rec_at: null, created_at: "", updated_at: "", ...p,
   };
 }
 
