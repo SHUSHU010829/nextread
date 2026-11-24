@@ -1,4 +1,4 @@
-import type { Book, BookInput, EnrichResult, ImportResult, LookupResult } from "./types";
+import type { Book, BookInput, EnrichResult, ImportResult, LookupResult, Prediction, Suggestion } from "./types";
 
 export class ApiError extends Error {
   constructor(
@@ -47,6 +47,9 @@ export const api = {
   enrich: (ids?: string[]) =>
     request<EnrichResult>("/books/enrich", { method: "POST", body: JSON.stringify(ids ? { ids } : {}) }),
   lookup: (q: string) => request<LookupResult[]>(`/lookup?q=${encodeURIComponent(q)}`),
+  predict: (query: string) => request<Prediction>("/recommend/predict", { method: "POST", body: JSON.stringify({ query }) }),
+  suggest: (hint: string) =>
+    request<{ items: Suggestion[] }>("/recommend/suggest", { method: "POST", body: JSON.stringify({ hint }) }),
 };
 
 export const EXPORT_URL = "/api/books/export";

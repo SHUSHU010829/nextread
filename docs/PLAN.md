@@ -129,6 +129,13 @@ p = \mathrm{normalize}\left(\sum_i r_i \cdot e_i\right), \quad r_i \in \{1, 0, -
 
 完成條件：新增一本書少於 30 秒，大部分的書都有簡介。
 
+**過渡方案：Claude 推薦（已完成）**
+
+- [x] 評價超過 10 本後啟用「推薦」：把評價與心得交給 Claude，推測單本書的喜歡程度、推薦書櫃外的新書
+- [x] 推薦結果用 Google Books／Open Library 確認存在並帶入封面，可直接加入想讀
+
+Phase 3 完成後，可以把 embedding 算出的分數一起交給 Claude，讓理由更有依據。
+
 **Phase 3：Embedding 推薦**
 
 - [ ] 存書時用 Voyage 產生 embedding，另存一個 `embeddings.json`

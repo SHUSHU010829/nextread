@@ -24,18 +24,23 @@ const fromRating = (r: Rating): RatingValue => (r === null ? "" : (String(r) as 
 
 export default function BookDialog({
   book,
+  preset,
   onClose,
   onSaved,
   onDeleted,
 }: {
   book: Book | null;
+  /** 新增時預先填入的欄位（例如從推薦加入）。 */
+  preset?: Partial<BookInput>;
   onClose: () => void;
   onSaved: (b: Book) => void;
   onDeleted: (id: string) => void;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
-  const [form, setForm] = useState<BookInput>(() => (book ? bookToInput(book) : emptyInput({ finished_at: today() })));
-  const [categoriesText, setCategoriesText] = useState(() => (book?.categories ?? []).join("、"));
+  const [form, setForm] = useState<BookInput>(() =>
+    book ? bookToInput(book) : emptyInput({ finished_at: today(), ...preset }),
+  );
+  const [categoriesText, setCategoriesText] = useState(() => (book?.categories ?? preset?.categories ?? []).join("、"));
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);

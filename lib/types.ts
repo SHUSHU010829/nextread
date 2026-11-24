@@ -68,3 +68,24 @@ export const RATING_LABEL: Record<"1" | "0" | "-1", string> = {
   "0": "沒想法",
   "-1": "不喜歡",
 };
+
+export interface Prediction {
+  /** 模型是否確定這本書存在且了解內容；false 時分數沒有參考價值。 */
+  known: boolean;
+  title: string;
+  author: string;
+  score: number;
+  reason: string;
+  based_on: string[];
+}
+
+export interface Suggestion {
+  title: string;
+  author: string;
+  reason: string;
+  based_on: string[];
+  /** 是否在 Google Books / Open Library 查到這本書。 */
+  verified: boolean;
+  /** 查到時的書籍資料（封面、簡介等）。 */
+  book?: LookupResult;
+}

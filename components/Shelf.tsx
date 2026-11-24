@@ -3,10 +3,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, errorMessage, EXPORT_URL } from "@/lib/api";
 import { applyFilter, DEFAULT_FILTER, shelfStats, type RatingFilter, type ShelfFilter, type SortKey, type StatusFilter } from "@/lib/shelf";
-import { RATING_LABEL, STATUS_LABEL, type Book } from "@/lib/types";
+import { RATING_LABEL, STATUS_LABEL, type Book, type BookInput } from "@/lib/types";
 import Seg from "./Seg";
 import BookDialog from "./BookDialog";
 import ImportDialog from "./ImportDialog";
+import RecommendPanel from "./RecommendPanel";
 
 const STATUS_OPTS: { value: StatusFilter; label: string }[] = [
   { value: "all", label: "全部" },
@@ -27,7 +28,7 @@ const SORT_OPTS: { value: SortKey; label: string }[] = [
   { value: "title", label: "書名" },
 ];
 
-type Editing = { book: Book | null } | null;
+type Editing = { book: Book | null; preset?: Partial<BookInput> } | null;
 
 export default function Shelf({ onLogout }: { onLogout: () => void }) {
   const [books, setBooks] = useState<Book[] | null>(null);
@@ -37,6 +38,7 @@ export default function Shelf({ onLogout }: { onLogout: () => void }) {
   const [importing, setImporting] = useState(false);
   const [notice, setNotice] = useState("");
   const [enriching, setEnriching] = useState(false);
+  const [showRecommend, setShowRecommend] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -104,6 +106,9 @@ export default function Shelf({ onLogout }: { onLogout: () => void }) {
               {enriching ? "補資料中…" : `補資料（${stats.missingInfo}）`}
             </button>
           )}
+          <button className={"btn" + (showRecommend ? " on" : "")} onClick={() => setShowRecommend((v) => !v)} aria-expanded={showRecommend}>
+            推薦
+          </button>
           <button className="btn" onClick={() => setImporting(true)}>
             匯入
           </button>
@@ -122,6 +127,10 @@ export default function Shelf({ onLogout }: { onLogout: () => void }) {
             </button>
           )}
         </div>
+      )}
+
+      {showRecommend && books && (
+        <RecommendPanel books={books} onAdd={(preset) => setEditing({ book: null, preset })} />
       )}
 
       <div className="toolbar">
@@ -197,7 +206,7 @@ export default function Shelf({ onLogout }: { onLogout: () => void }) {
       </p>
 
       {editing && (
-        <BookDialog book={editing.book} onClose={() => setEditing(null)} onSaved={onSaved} onDeleted={onDeleted} />
+        <BookDialog book={editing.book} preset={editing.preset} onClose={() => setEditing(null)} onSaved={onSaved} onDeleted={onDeleted} />
       )}
       {importing && (
         <ImportDialog

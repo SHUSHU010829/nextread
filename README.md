@@ -2,7 +2,7 @@
 
 個人閱讀紀錄與書籍推薦系統。開發計畫見 [docs/PLAN.md](docs/PLAN.md)。
 
-目前完成 **Phase 1（紀錄 MVP）** 與 **Phase 2（書籍資料帶入）**；Phase 3（Embedding 推薦）等評價累積到 30 本以上再開始。
+目前完成 **Phase 1（紀錄 MVP）**、**Phase 2（書籍資料帶入）**，以及先用 Claude 做的**推薦**（評價超過 10 本後啟用）；Phase 3（Embedding 推薦）等評價累積到 30 本以上再開始。
 
 ```
 app/            Next.js App Router：頁面與 /api/* Route Handler
@@ -17,7 +17,8 @@ lib/server/     只在伺服器端執行（登入、儲存、輸入驗證、匯�
 瀏覽器 ──(密碼登入，取得簽名 cookie)──▶ Next.js /api/*（Vercel Functions）
                                            │
                                            ├──▶ Vercel Blob：nextread/books.json（私有）
-                                           └──▶ Google Books（主要）／Open Library（備援）
+                                           ├──▶ Google Books（主要）／Open Library（備援）
+                                           └──▶ Claude API（推薦）
 ```
 
 - 只有一位使用者，所以不用資料庫：整個書櫃是一個 JSON 檔，幾百本書大約幾百 KB。
@@ -41,6 +42,18 @@ lib/server/     只在伺服器端執行（登入、儲存、輸入驗證、匯�
 | GET | `/api/books/export` | 下載整個書櫃的 JSON 備份，可以直接匯回 |
 | POST | `/api/books/enrich` | 替缺簡介或封面的書查資料，只填空白欄位；可帶 `{"ids": [...]}` |
 | GET | `/api/lookup?q=` | ISBN 或書名查詢；Google Books 失敗或沒結果時改查 Open Library |
+| POST | `/api/recommend/predict` | `{"query": "書名"}`：推測喜歡程度（0–100）與理由 |
+| POST | `/api/recommend/suggest` | `{"hint": "選填"}`：推薦書櫃上沒有的書，並用書籍資料庫確認、帶入封面 |
+
+## 推薦
+
+書櫃頁面的「推薦」按鈕。已評價（喜歡／沒想法／不喜歡）的書**超過 10 本**才會啟用，門檻在 `lib/server/recommend.ts` 的 `MIN_RATED`。
+
+- **這本我會喜歡嗎？**：輸入書名，回傳 0–100 分、理由與參考了哪幾本已評價的書；模型不確定這本書時會直說，不給分數。
+- **為我推薦**：推薦 6 本書櫃上沒有的書，可以補一句這次想看什麼。每本會再查一次 Google Books／Open Library 確認存在並帶入封面，查不到的會標示。按「加入想讀」會開啟新增視窗並預先填好資料。
+- 每次請求把書櫃（依評價分組，附分類與心得，心得超過 300 字會截斷）交給 Claude（`claude-opus-5-5`，effort `medium`），用結構化輸出取得固定格式的 JSON。書櫃內容有開 prompt caching。
+- 被安全機制拒絕時由 API 自動改用備援模型（`fallbacks: "default"`）。
+- 需要 `ANTHROPIC_API_KEY`。費用依書櫃大小和模型思考的長度而定：書櫃幾十本時，一次推測或推薦大約 0.03–0.12 美元（約新台幣 1–4 元）。實際花費可以在 Claude Console 的 Usage 頁面查看。
 
 ## 本機開發
 
@@ -57,6 +70,7 @@ npm run dev
 3. **Settings → Environment Variables** 加入：
    - `APP_PASSWORD`：登入密碼，請用夠長的密碼
    - `GOOGLE_BOOKS_API_KEY`：建議設定；沒有 key 很容易被限流（HTTP 429）
+   - `ANTHROPIC_API_KEY`：推薦功能需要
 4. 重新部署，讓新的環境變數生效。
 
 「補資料」每次最多查 40 秒，接著先存下已補好的資料（函式上限 60 秒）。書很多時畫面會提示還剩幾本，再按一次會接著處理。
@@ -81,7 +95,7 @@ npm run dev
 ## 測試
 
 ```bash
-npm test            # 單元測試（登入、儲存與寫入衝突、書櫃操作、驗證、匯入、書籍資料解析、補資料）
+npm test            # 單元測試（登入、儲存與寫入衝突、書櫃操作、驗證、匯入、書籍資料解析、補資料、推薦）
 npm run typecheck
 npm run build
 ```
