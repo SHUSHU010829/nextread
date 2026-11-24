@@ -196,13 +196,6 @@ export default function BookDialog({
           </div>
         )}
 
-        {form.cover_url && (
-          <div className="picked">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img className="cover" src={form.cover_url} alt="" referrerPolicy="no-referrer" />
-            <span className="hint">已帶入封面</span>
-          </div>
-        )}
 
         <label htmlFor="fTitle">書名</label>
         <input id="fTitle" type="text" required autoComplete="off" value={form.title} onChange={(e) => set("title", e.target.value)} />
