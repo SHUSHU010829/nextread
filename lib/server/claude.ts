@@ -7,7 +7,7 @@ import { HttpError } from "./errors.ts";
 import { best, defaultProviders, searchAll } from "./lookup.ts";
 import { clampScore, dropOwned, shelfPrompt, SYSTEM_PROMPT } from "./recommend.ts";
 
-const MODEL = "claude-opus-5-5";
+const MODEL = "claude-sonnet-5-5";
 
 let client: Anthropic | null = null;
 function getClient(): Anthropic {
