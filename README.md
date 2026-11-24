@@ -16,16 +16,15 @@ lib/server/     只在伺服器端執行（登入、儲存、輸入驗證、匯�
 ```
 瀏覽器 ──(密碼登入，取得簽名 cookie)──▶ Next.js /api/*（Vercel Functions）
                                            │
-                                           ├──▶ Vercel Blob：nextread/books.json（私有）
+                                           ├──▶ Neon Postgres：books 資料表
                                            ├──▶ Google Books（主要）／Open Library（備援）
                                            └──▶ Claude API（推薦）
 ```
 
-- 只有一位使用者，所以不用資料庫：整個書櫃是一個 JSON 檔，幾百本書大約幾百 KB。
+- 資料存在 Neon Postgres 的 `books` 資料表，每本書一列；第一次連線時自動建表（結構見 `db/schema.sql`）。用 Neon 的 HTTP driver（`@neondatabase/serverless`），適合 Vercel 這類每次請求開新連線的環境。
 - 登入是單一密碼（`APP_PASSWORD`），登入後發一個 HMAC 簽名、30 天有效的 HttpOnly cookie。改密碼會讓所有舊的登入失效。
-- 寫入時帶上讀取當時的 etag：如果兩台裝置同時存檔，後到的那次會重新讀取、套用修改再寫入，不會蓋掉另一台的修改。
-- Blob 檔案設為 private，只能透過伺服器讀取。
-- 本機開發沒有設定 `BLOB_READ_WRITE_TOKEN` 時，資料存在 `.data/books.json`。
+- ISBN 不重複由資料庫的 UNIQUE 約束保證；匯入在同一個交易裡執行，有一筆失敗就整批撤銷。
+- 本機開發沒有設定 `DATABASE_URL` 時，資料存在 `.data/books.json`，不用另外架資料庫。
 
 ## API
 
@@ -66,8 +65,9 @@ npm run dev
 ## 部署到 Vercel
 
 1. 在 Vercel 匯入這個 GitHub repo（Framework 會自動偵測為 Next.js）。
-2. 專案的 **Storage** → 建立 **Blob** store 並連接到這個專案。`BLOB_READ_WRITE_TOKEN` 會自動加入環境變數。
+2. 建立 Neon 資料庫（只需要開 Postgres database，region 選 AWS US East 1 跟 Vercel 函式同區），在 Neon 專案的 **Connect** 複製連線字串。
 3. **Settings → Environment Variables** 加入：
+   - `DATABASE_URL`：Neon 的連線字串（`postgresql://...`）。也可以從 Vercel 的 Storage 建立 Neon，會自動加入
    - `APP_PASSWORD`：登入密碼，請用夠長的密碼
    - `GOOGLE_BOOKS_API_KEY`：建議設定；沒有 key 很容易被限流（HTTP 429）
    - `ANTHROPIC_API_KEY`：推薦功能需要
@@ -77,7 +77,7 @@ npm run dev
 
 ## 備份
 
-書櫃頁面底部有「匯出 JSON 備份」。Vercel Blob 本身沒有版本紀錄，建議偶爾下載一份。匯出的檔案可以直接用「匯入」匯回去，重複的書會略過。
+Neon 可以把資料庫還原到最近一段時間內的任一時刻（免費方案的保留天數以 Neon 方案說明為準）。另外書櫃頁面底部有「匯出 JSON 備份」，匯出的檔案可以直接用「匯入」匯回去，重複的書會略過；從舊版（Vercel Blob）搬資料也是用這個方式。
 
 ## 從 artifact 書櫃匯入
 
@@ -95,7 +95,7 @@ npm run dev
 ## 測試
 
 ```bash
-npm test            # 單元測試（登入、儲存與寫入衝突、書櫃操作、驗證、匯入、書籍資料解析、補資料、推薦）
+npm test            # 單元測試（登入、Postgres 資料表操作〔用 PGlite 跑真的 Postgres〕、本機 JSON 儲存、驗證、匯入、書籍資料解析、補資料、推薦）
 npm run typecheck
 npm run build
 ```
