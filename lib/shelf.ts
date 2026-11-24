@@ -1,7 +1,7 @@
 import type { Book, BookInput, LookupResult, Status } from "./types";
 
 export type StatusFilter = Status | "all";
-export type RatingFilter = "1" | "0" | "-1" | "none" | "all";
+export type RatingFilter = "2" | "1" | "0" | "-1" | "none" | "all";
 export type SortKey = "finished" | "created" | "title";
 
 export interface ShelfFilter {
@@ -50,14 +50,37 @@ export function applyFilter(books: Book[], f: ShelfFilter): Book[] {
   }
 }
 
-export function shelfStats(books: Book[]) {
+export function shelfStats(books: Book[], year = new Date().getFullYear()) {
+  const finished = books.filter((b) => b.status === "read");
   return {
     total: books.length,
-    read: books.filter((b) => b.status === "read").length,
+    read: finished.length,
+    dropped: books.filter((b) => b.status === "dropped").length,
+    reading: books.filter((b) => b.status === "reading").length,
+    want: books.filter((b) => b.status === "want").length,
+    superLiked: books.filter((b) => b.rating === 2).length,
     liked: books.filter((b) => b.rating === 1).length,
+    meh: books.filter((b) => b.rating === 0).length,
+    disliked: books.filter((b) => b.rating === -1).length,
     rated: books.filter((b) => b.rating !== null).length,
+    readThisYear: finished.filter((b) => b.finished_at?.startsWith(String(year))).length,
     missingInfo: books.filter((b) => !b.description.trim() || !b.cover_url.trim()).length,
   };
+}
+
+/** 想讀清單：有推薦分數的依分數高到低，其餘依加入時間新到舊。 */
+export function wantList(books: Book[]): Book[] {
+  return books
+    .filter((b) => b.status === "want")
+    .sort((a, b) => (b.rec_score ?? -1) - (a.rec_score ?? -1) || b.created_at.localeCompare(a.created_at));
+}
+
+/** 評價過的書，依完讀日期新到舊。 */
+export function ratedList(books: Book[], rating: RatingFilter = "all"): Book[] {
+  return applyFilter(
+    books.filter((b) => b.rating !== null),
+    { ...DEFAULT_FILTER, rating },
+  );
 }
 
 export function emptyInput(preset: Partial<BookInput> = {}): BookInput {
@@ -72,6 +95,9 @@ export function emptyInput(preset: Partial<BookInput> = {}): BookInput {
     rating: null,
     finished_at: "",
     note: "",
+    rec_score: null,
+    rec_reason: "",
+    rec_at: "",
     ...preset,
   };
 }
@@ -88,6 +114,9 @@ export function bookToInput(b: Book): BookInput {
     rating: b.rating,
     finished_at: b.finished_at ?? "",
     note: b.note,
+    rec_score: b.rec_score,
+    rec_reason: b.rec_reason,
+    rec_at: b.rec_at ?? "",
   };
 }
 

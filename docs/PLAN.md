@@ -14,8 +14,8 @@ Nov 20, 2026 · @Shuyuan Chuang
 
 **目標**
 
-1. 紀錄：手動輸入書櫃上的書，記下狀態、評價、讀完日期和心得，當作長期的閱讀紀錄。
-2. 評價：用三種評價表達偏好——喜歡、沒想法、不喜歡，輸入成本要低。
+1. 紀錄：手動輸入書櫃上的書，記下狀態、評價、完讀日期和心得，當作長期的閱讀紀錄。
+2. 評價：用四種評價表達偏好——超級喜歡、喜歡、沒想法、不喜歡，輸入成本要低。只有完讀和棄讀的書可以評價。
 3. 推薦：根據我的評價，推薦還沒讀過的書。
 4. 預測：查詢任何一本書時，推測我會喜歡它的程度（0–100 分）並說明理由。
 5. 介面簡潔、資料不會遺失，換裝置也能使用。
@@ -33,9 +33,9 @@ Nov 20, 2026 · @Shuyuan Chuang
 
 | 功能 | 說明 | 階段 |
 | --- | --- | --- |
-| 書櫃列表 | 搜尋書名或作者，依狀態、評價篩選，依讀完日期排序 | Phase 1 |
-| 新增／編輯書籍 | 書名、作者、狀態（想讀／在讀／讀完）、評價、讀完日期、心得 | Phase 1 |
-| 三種評價 | 喜歡 / 沒想法 / 不喜歡，也可以不評價（想讀的書） | Phase 1 |
+| 書櫃列表 | 搜尋書名或作者，依狀態、評價篩選，依完讀日期排序；想讀清單依推薦分數排序 | Phase 1 |
+| 新增／編輯書籍 | 書名、作者、狀態（想讀／在讀／完讀／棄讀）、評價、完讀日期、心得 | Phase 1 |
+| 四種評價 | 超級喜歡 / 喜歡 / 沒想法 / 不喜歡；棄讀預設不喜歡，可以自己改 | Phase 1 |
 | 登入與雲端儲存 | 密碼登入，資料存在 Neon Postgres，換裝置也能用 | Phase 1 |
 | 匯入 artifact 資料 | 把目前 artifact 書櫃的紀錄轉進正式版 | Phase 1 |
 | 書籍資料自動帶入 | 輸入 ISBN 或書名，從 Google Books / Open Library 帶入封面、簡介、分類 | Phase 2 |
@@ -72,9 +72,10 @@ Next.js（含 Route Handler 當後端）+ Neon Postgres + Voyage，整個專案�
 | cover\_url | text | 封面 |
 | description | text | 簡介，API 帶入或手動貼上 |
 | categories | text\[] | 分類／標籤 |
-| status | enum | want / reading / read |
-| rating | smallint | 1 喜歡 / 0 沒想法 / -1 不喜歡 / null 未評價 |
-| finished\_at | date | 讀完日期 |
+| status | text | want 想讀 / reading 在讀 / read 完讀 / dropped 棄讀 |
+| rating | smallint | 2 超級喜歡 / 1 喜歡 / 0 沒想法 / -1 不喜歡 / null 未評價 |
+| finished\_at | date | 完讀（或棄讀）日期 |
+| rec\_score / rec\_reason / rec\_at | smallint / text / timestamptz | 加入想讀時的推薦分數、理由、時間 |
 | note | text | 心得 |
 | created\_at / updated\_at | timestamptz | 建立／更新時間 |
 
@@ -85,12 +86,12 @@ Next.js（含 Route Handler 當後端）+ Neon Postgres + Voyage，整個專案�
 採用內容相似度（content-based）：把每本書轉成向量，用我的評價算出一個偏好向量，再拿候選書跟它比較。
 
 1. **Embedding 文字**：書名 + 作者 + 分類 + 簡介；已讀的書再加上心得。存書或修改時重算。
-2. **偏好向量**：喜歡 +1、沒想法 0、不喜歡 −1，取加權平均後正規化。
+2. **偏好向量**：超級喜歡 +2、喜歡 +1、沒想法 0、不喜歡 −1，取加權平均後正規化。
 3. **預測分數**：候選書與偏好向量的 cosine 相似度，線性映射到 0–100。
 4. **推薦**：對候選池逐本計算分數，取前 N 名。書量在幾千本以內，直接在伺服器端計算即可，不需要向量資料庫。
 
 ```latex
-p = \mathrm{normalize}\left(\sum_i r_i \cdot e_i\right), \quad r_i \in \{1, 0, -1\}
+p = \mathrm{normalize}\left(\sum_i r_i \cdot e_i\right), \quad r_i \in \{2, 1, 0, -1\}
 ```
 
 ```latex

@@ -1,4 +1,4 @@
-import type { Book, BookInput, EnrichResult, ImportResult, LookupResult, Prediction, Suggestion } from "./types";
+import type { Book, BookInput, ChatMessage, EnrichResult, ImportResult, LookupResult, Prediction, Suggestion } from "./types";
 
 export class ApiError extends Error {
   constructor(
@@ -48,8 +48,8 @@ export const api = {
     request<EnrichResult>("/books/enrich", { method: "POST", body: JSON.stringify(ids ? { ids } : {}) }),
   lookup: (q: string) => request<LookupResult[]>(`/lookup?q=${encodeURIComponent(q)}`),
   predict: (query: string) => request<Prediction>("/recommend/predict", { method: "POST", body: JSON.stringify({ query }) }),
-  suggest: (hint: string) =>
-    request<{ items: Suggestion[] }>("/recommend/suggest", { method: "POST", body: JSON.stringify({ hint }) }),
+  chat: (messages: ChatMessage[]) =>
+    request<{ message: string; items: Suggestion[] }>("/recommend/chat", { method: "POST", body: JSON.stringify({ messages }) }),
 };
 
 export const EXPORT_URL = "/api/books/export";

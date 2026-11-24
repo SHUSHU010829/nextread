@@ -11,25 +11,44 @@ export interface Sql {
   transaction(statements: { text: string; params: unknown[] }[]): Promise<void>;
 }
 
-export const SCHEMA = `CREATE TABLE IF NOT EXISTS books (
-  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  title       text NOT NULL CHECK (length(btrim(title)) > 0),
-  author      text NOT NULL DEFAULT '',
-  isbn        text UNIQUE,
-  cover_url   text NOT NULL DEFAULT '',
-  description text NOT NULL DEFAULT '',
-  categories  text[] NOT NULL DEFAULT '{}',
-  status      text NOT NULL DEFAULT 'want' CHECK (status IN ('want', 'reading', 'read')),
-  rating      smallint CHECK (rating IN (-1, 0, 1)),
-  finished_at date,
-  note        text NOT NULL DEFAULT '',
-  created_at  timestamptz NOT NULL DEFAULT now(),
-  updated_at  timestamptz NOT NULL DEFAULT now()
-)`;
+/**
+ * 依序套用的資料表變更。已套用的版本記在 schema_version，不會重複執行。
+ * 只能在最後面新增，不要修改已經上線的項目。
+ */
+export const MIGRATIONS: string[][] = [
+  // 1：books 資料表
+  [
+    `CREATE TABLE IF NOT EXISTS books (
+      id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      title       text NOT NULL CHECK (length(btrim(title)) > 0),
+      author      text NOT NULL DEFAULT '',
+      isbn        text UNIQUE,
+      cover_url   text NOT NULL DEFAULT '',
+      description text NOT NULL DEFAULT '',
+      categories  text[] NOT NULL DEFAULT '{}',
+      status      text NOT NULL DEFAULT 'want' CHECK (status IN ('want', 'reading', 'read')),
+      rating      smallint CHECK (rating IN (-1, 0, 1)),
+      finished_at date,
+      note        text NOT NULL DEFAULT '',
+      created_at  timestamptz NOT NULL DEFAULT now(),
+      updated_at  timestamptz NOT NULL DEFAULT now()
+    )`,
+  ],
+  // 2：棄讀、超級喜歡、想讀的推薦資訊
+  [
+    `ALTER TABLE books DROP CONSTRAINT IF EXISTS books_status_check`,
+    `ALTER TABLE books ADD CONSTRAINT books_status_check CHECK (status IN ('want', 'reading', 'read', 'dropped'))`,
+    `ALTER TABLE books DROP CONSTRAINT IF EXISTS books_rating_check`,
+    `ALTER TABLE books ADD CONSTRAINT books_rating_check CHECK (rating IN (-1, 0, 1, 2))`,
+    `ALTER TABLE books ADD COLUMN IF NOT EXISTS rec_score smallint CHECK (rec_score BETWEEN 0 AND 100)`,
+    `ALTER TABLE books ADD COLUMN IF NOT EXISTS rec_reason text NOT NULL DEFAULT ''`,
+    `ALTER TABLE books ADD COLUMN IF NOT EXISTS rec_at timestamptz`,
+  ],
+];
 
 // 日期以文字取出，避免時區轉換把日期變成前一天
 const COLUMNS = `id::text AS id, title, author, isbn, cover_url, description, categories, status, rating,
-  finished_at::text AS finished_at, created_at, updated_at`;
+  finished_at::text AS finished_at, note, rec_score, rec_reason, rec_at, created_at, updated_at`;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -52,6 +71,9 @@ function toBook(r: Record<string, unknown>): Book {
     rating: r.rating === null || r.rating === undefined ? null : (Number(r.rating) as Book["rating"]),
     finished_at: (r.finished_at as string | null) ?? null,
     note: String(r.note ?? ""),
+    rec_score: r.rec_score === null || r.rec_score === undefined ? null : Number(r.rec_score),
+    rec_reason: String(r.rec_reason ?? ""),
+    rec_at: r.rec_at ? iso(r.rec_at) : null,
     created_at: iso(r.created_at),
     updated_at: iso(r.updated_at),
   };
@@ -59,11 +81,13 @@ function toBook(r: Record<string, unknown>): Book {
 
 const isUniqueViolation = (e: unknown) => (e as { code?: string } | null)?.code === "23505";
 
-const insertSql = `INSERT INTO books (title, author, isbn, cover_url, description, categories, status, rating, finished_at, note, created_at)
-  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11::timestamptz, now()))`;
+const insertSql = `INSERT INTO books (title, author, isbn, cover_url, description, categories, status, rating, finished_at, note,
+    rec_score, rec_reason, rec_at, created_at)
+  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, COALESCE($14::timestamptz, now()))`;
 
 function insertParams(r: BookRow): unknown[] {
-  return [r.title, r.author, r.isbn, r.cover_url, r.description, r.categories, r.status, r.rating, r.finished_at, r.note, r.created_at ?? null];
+  return [r.title, r.author, r.isbn, r.cover_url, r.description, r.categories, r.status, r.rating, r.finished_at, r.note,
+    r.rec_score, r.rec_reason, r.rec_at, r.created_at ?? null];
 }
 
 export class PgRepo implements BookRepo {
@@ -74,28 +98,46 @@ export class PgRepo implements BookRepo {
     this.sql = sql;
   }
 
-  /** 第一次使用時建立資料表（之後是 no-op）。失敗時下次再試。 */
+  /** 第一次使用時建立資料表並套用尚未執行的 migration（之後是 no-op）。失敗時下次再試。 */
   private ensureSchema(): Promise<void> {
-    this.ready ??= this.sql.query(SCHEMA).then(
-      () => undefined,
-      (e) => {
-        this.ready = null;
-        throw e;
-      },
-    );
+    this.ready ??= this.migrate().catch((e) => {
+      this.ready = null;
+      throw e;
+    });
     return this.ready;
+  }
+
+  private async migrate(): Promise<void> {
+    await this.sql.query(`CREATE TABLE IF NOT EXISTS schema_version (version int PRIMARY KEY)`);
+    for (let attempt = 0; ; attempt++) {
+      const [row] = await this.sql.query(`SELECT COALESCE(MAX(version), 0) AS v FROM schema_version`);
+      const current = Number(row.v);
+      if (current >= MIGRATIONS.length) return;
+      const statements = MIGRATIONS.slice(current).flatMap((stmts, i) => [
+        ...stmts.map((text) => ({ text, params: [] as unknown[] })),
+        { text: `INSERT INTO schema_version (version) VALUES ($1)`, params: [current + i + 1] },
+      ]);
+      try {
+        await this.sql.transaction(statements);
+        return;
+      } catch (e) {
+        // 另一個請求同時在套用（版本號重複）：重新讀一次版本
+        if (isUniqueViolation(e) && attempt < 2) continue;
+        throw e;
+      }
+    }
   }
 
   async list(): Promise<Book[]> {
     await this.ensureSchema();
-    const rows = await this.sql.query(`SELECT ${COLUMNS}, note FROM books ORDER BY created_at`);
+    const rows = await this.sql.query(`SELECT ${COLUMNS} FROM books ORDER BY created_at`);
     return rows.map(toBook);
   }
 
   async create(row: BookRow): Promise<Book> {
     await this.ensureSchema();
     try {
-      const [r] = await this.sql.query(`${insertSql} RETURNING ${COLUMNS}, note`, insertParams(row));
+      const [r] = await this.sql.query(`${insertSql} RETURNING ${COLUMNS}`, insertParams(row));
       return toBook(r);
     } catch (e) {
       if (isUniqueViolation(e)) throw duplicateIsbn();
@@ -109,9 +151,11 @@ export class PgRepo implements BookRepo {
     try {
       const rows = await this.sql.query(
         `UPDATE books SET title = $1, author = $2, isbn = $3, cover_url = $4, description = $5, categories = $6,
-           status = $7, rating = $8, finished_at = $9, note = $10, updated_at = now()
-         WHERE id = $11 RETURNING ${COLUMNS}, note`,
-        [row.title, row.author, row.isbn, row.cover_url, row.description, row.categories, row.status, row.rating, row.finished_at, row.note, id],
+           status = $7, rating = $8, finished_at = $9, note = $10, rec_score = $11, rec_reason = $12, rec_at = $13,
+           updated_at = now()
+         WHERE id = $14 RETURNING ${COLUMNS}`,
+        [row.title, row.author, row.isbn, row.cover_url, row.description, row.categories, row.status, row.rating,
+          row.finished_at, row.note, row.rec_score, row.rec_reason, row.rec_at, id],
       );
       if (!rows.length) throw notFound();
       return toBook(rows[0]);

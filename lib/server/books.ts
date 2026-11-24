@@ -4,7 +4,8 @@ import { ValidationError } from "./errors.ts";
 
 export { ValidationError };
 
-const STATUSES: Status[] = ["want", "reading", "read"];
+const STATUSES: Status[] = ["want", "reading", "read", "dropped"];
+const RATINGS = [2, 1, 0, -1];
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** 去掉連字號與空白；不是合法的 ISBN-10 / ISBN-13 格式時回傳空字串。 */
@@ -54,9 +55,12 @@ export type BookRow = {
   description: string;
   categories: string[];
   status: Status;
-  rating: 1 | 0 | -1 | null;
+  rating: 2 | 1 | 0 | -1 | null;
   finished_at: string | null;
   note: string;
+  rec_score: number | null;
+  rec_reason: string;
+  rec_at: string | null;
   created_at?: string;
 };
 
@@ -69,11 +73,27 @@ export function toRow(input: unknown): BookRow {
   if (!title) throw new ValidationError("書名必填");
 
   const status = (v.status ?? "want") as Status;
-  if (!STATUSES.includes(status)) throw new ValidationError("狀態必須是 want、reading 或 read");
+  if (!STATUSES.includes(status)) throw new ValidationError("狀態必須是 want、reading、read 或 dropped");
 
-  const rating = v.rating ?? null;
-  if (rating !== null && rating !== 1 && rating !== 0 && rating !== -1) {
-    throw new ValidationError("評價必須是 1、0、-1 或 null");
+  let rating = (v.rating ?? null) as BookRow["rating"];
+  if (rating !== null && !RATINGS.includes(rating)) {
+    throw new ValidationError("評價必須是 2、1、0、-1 或 null");
+  }
+  // 只有完讀、棄讀可以評價；棄讀沒有評價時預設為不喜歡
+  if (status === "want" || status === "reading") rating = null;
+  else if (status === "dropped" && rating === null) rating = -1;
+
+  let recScore: number | null = null;
+  if (v.rec_score !== undefined && v.rec_score !== null && v.rec_score !== "") {
+    const n = Number(v.rec_score);
+    if (!Number.isFinite(n) || n < 0 || n > 100) throw new ValidationError("推薦分數必須是 0–100");
+    recScore = Math.round(n);
+  }
+  let recAt: string | null = null;
+  const rawRecAt = str(v.rec_at);
+  if (rawRecAt) {
+    if (Number.isNaN(Date.parse(rawRecAt))) throw new ValidationError("推薦時間格式不正確");
+    recAt = new Date(rawRecAt).toISOString();
   }
 
   let isbn: string | null = null;
@@ -98,9 +118,12 @@ export function toRow(input: unknown): BookRow {
     description: str(v.description),
     categories: cleanCategories(v.categories),
     status,
-    rating: rating as BookRow["rating"],
+    rating,
     finished_at: finished,
     note: str(v.note),
+    rec_score: recScore,
+    rec_reason: str(v.rec_reason).slice(0, 1000),
+    rec_at: recAt,
   };
 }
 
@@ -121,11 +144,11 @@ export function parseImport(text: string): unknown[] {
   throw new ValidationError('找不到書籍資料：需要 JSON 陣列或 {"books": [...]}');
 }
 
-function parseRating(v: unknown): 1 | 0 | -1 | null {
+function parseRating(v: unknown): BookRow["rating"] {
   if (v === undefined || v === null || v === "") return null;
   const n = typeof v === "string" ? Number(v) : v;
-  if (n === 1 || n === 0 || n === -1) return n;
-  throw new ValidationError(`評價必須是 1、0、-1 或 null，收到 ${JSON.stringify(v)}`);
+  if (n === 2 || n === 1 || n === 0 || n === -1) return n;
+  throw new ValidationError(`評價必須是 2、1、0、-1 或 null，收到 ${JSON.stringify(v)}`);
 }
 
 /**

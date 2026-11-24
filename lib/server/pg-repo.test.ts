@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { PGlite } from "@electric-sql/pglite";
 import { toRow } from "./books.ts";
 import { HttpError } from "./errors.ts";
-import { PgRepo, type Sql } from "./pg-repo.ts";
+import { MIGRATIONS, PgRepo, type Sql } from "./pg-repo.ts";
 
 function pgliteSql(db: PGlite): Sql {
   return {
@@ -83,6 +83,42 @@ test("importRows is all-or-nothing", async () => {
     const bad = { ...toRow({ title: "x" }), title: " " };
     await assert.rejects(repo.importRows([toRow({ title: "好書" }), bad]));
     assert.equal((await repo.list()).length, 0);
+  } finally {
+    await db.close();
+  }
+});
+
+test("migrates an existing v1 table without losing data", async () => {
+  const db = new PGlite();
+  try {
+    // 模擬已上線的舊版資料表（沒有 schema_version）
+    await db.query(MIGRATIONS[0][0]);
+    await db.query(`INSERT INTO books (title, status, rating) VALUES ('舊書', 'read', 1)`);
+    const repo = new PgRepo(pgliteSql(db));
+
+    const [old] = await repo.list();
+    assert.equal(old.title, "舊書");
+    assert.equal(old.rating, 1);
+    assert.equal(old.rec_score, null);
+
+    const dropped = await repo.create(toRow({ title: "棄讀的書", status: "dropped" }));
+    assert.equal(dropped.status, "dropped");
+    assert.equal(dropped.rating, -1); // 棄讀預設不喜歡
+    const fav = await repo.create(toRow({ title: "最愛", status: "read", rating: 2 }));
+    assert.equal(fav.rating, 2);
+    const want = await repo.create(toRow({
+      title: "想讀的書", status: "want", rating: 1, rec_score: 82.4, rec_reason: "像你喜歡的書", rec_at: "2026-11-24T10:00:00.000Z",
+    }));
+    assert.equal(want.rating, null); // 想讀不能評價
+    assert.equal(want.rec_score, 82);
+    assert.equal(want.rec_reason, "像你喜歡的書");
+    assert.equal(want.rec_at, "2026-11-24T10:00:00.000Z");
+
+    // 第二個 repo（另一個請求）不會重複套用
+    const again = new PgRepo(pgliteSql(db));
+    assert.equal((await again.list()).length, 4);
+    const versions = await db.query<{ version: number }>(`SELECT version FROM schema_version ORDER BY version`);
+    assert.deepEqual(versions.rows.map((r) => r.version), [1, 2]);
   } finally {
     await db.close();
   }

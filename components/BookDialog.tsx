@@ -2,17 +2,20 @@
 
 import { useEffect, useRef, useState } from "react";
 import { api, errorMessage } from "@/lib/api";
+import { normalizeISBN } from "@/lib/server/books";
 import { applyLookup, bookToInput, emptyInput, parseCategories, today } from "@/lib/shelf";
-import type { Book, BookInput, LookupResult, Rating, Status } from "@/lib/types";
+import { canRate, type Book, type BookInput, type LookupResult, type Rating, type Status } from "@/lib/types";
 import Seg from "./Seg";
 
 const STATUS_OPTS: { value: Status; label: string }[] = [
-  { value: "read", label: "讀完" },
+  { value: "read", label: "完讀" },
   { value: "reading", label: "在讀" },
   { value: "want", label: "想讀" },
+  { value: "dropped", label: "棄讀" },
 ];
-type RatingValue = "1" | "0" | "-1" | "";
+type RatingValue = "2" | "1" | "0" | "-1" | "";
 const RATING_OPTS: { value: RatingValue; label: string }[] = [
+  { value: "2", label: "超級喜歡" },
   { value: "1", label: "喜歡" },
   { value: "0", label: "沒想法" },
   { value: "-1", label: "不喜歡" },
@@ -61,8 +64,10 @@ export default function BookDialog({
     setForm((f) => ({
       ...f,
       status: s,
-      // 改成「讀完」時自動填今天，改成「想讀」時清掉日期
-      finished_at: s === "read" ? f.finished_at || today() : s === "want" ? "" : f.finished_at,
+      // 只有完讀、棄讀可以評價；棄讀還沒評價時預設為不喜歡
+      rating: !canRate(s) ? null : s === "dropped" && f.rating === null ? -1 : f.rating,
+      // 改成完讀、棄讀時自動填今天，改成想讀時清掉日期
+      finished_at: canRate(s) ? f.finished_at || today() : s === "want" ? "" : f.finished_at,
     }));
   }
 
@@ -72,10 +77,15 @@ export default function BookDialog({
     if (!query.trim()) setQuery(q);
     setSearching(true);
     setLookupMsg("");
+    const isbn = normalizeISBN(q);
     try {
       const r = await api.lookup(q);
       setResults(r);
-      if (!r.length) setLookupMsg("查不到這本書，可以在下方手動填寫簡介。");
+      if (!r.length && isbn) {
+        // 查不到的 ISBN 還是填進書籍資料，之後補資料時可以再用它查
+        set("isbn", isbn);
+        setLookupMsg("查不到這個 ISBN 的資料，已幫你填入下方的 ISBN 欄位，書名和簡介可以手動填寫。");
+      } else if (!r.length) setLookupMsg("查不到這本書，可以在下方手動填寫簡介。");
     } catch (e) {
       setResults(null);
       setLookupMsg(errorMessage(e));
@@ -85,7 +95,9 @@ export default function BookDialog({
   }
 
   function pick(r: LookupResult) {
-    const next = applyLookup(form, r);
+    // 用 ISBN 查到、但結果本身沒有 ISBN 時，沿用查詢的 ISBN
+    const searched = normalizeISBN(query);
+    const next = applyLookup(form, searched && !r.isbn ? { ...r, isbn: searched } : r);
     setForm(next);
     setCategoriesText(next.categories.join("、"));
     setResults(null);
@@ -125,6 +137,15 @@ export default function BookDialog({
     <dialog ref={ref} onClose={onClose} onCancel={onClose}>
       <form onSubmit={submit}>
         <h3>{book ? "編輯書籍" : "新增書籍"}</h3>
+        {(form.rec_score !== null || form.rec_reason) && (
+          <div className="rec-note">
+            <span className="rec-note-head">
+              推薦紀錄{form.rec_score !== null && <b>{form.rec_score} 分</b>}
+              {form.rec_at && <span className="muted"> · {form.rec_at.slice(0, 10)}</span>}
+            </span>
+            {form.rec_reason && <span>{form.rec_reason}</span>}
+          </div>
+        )}
 
         <label htmlFor="lookup">從 ISBN 或書名帶入資料</label>
         <div className="lookup">
@@ -191,10 +212,18 @@ export default function BookDialog({
         <label>狀態</label>
         <Seg label="狀態" options={STATUS_OPTS} value={form.status} onChange={setStatus} />
         <label>評價</label>
-        <Seg label="評價" options={RATING_OPTS} value={fromRating(form.rating)} onChange={(v) => set("rating", toRating(v))} />
+        {canRate(form.status) ? (
+          <Seg label="評價" options={RATING_OPTS} value={fromRating(form.rating)} onChange={(v) => set("rating", toRating(v))} />
+        ) : (
+          <p className="hint">完讀或棄讀後才能評價。</p>
+        )}
 
-        <label htmlFor="fDate">讀完日期</label>
-        <input id="fDate" type="date" value={form.finished_at} onChange={(e) => set("finished_at", e.target.value)} />
+        {form.status !== "want" && (
+          <>
+            <label htmlFor="fDate">{form.status === "dropped" ? "棄讀日期" : form.status === "reading" ? "完讀日期（讀完再填）" : "完讀日期"}</label>
+            <input id="fDate" type="date" value={form.finished_at} onChange={(e) => set("finished_at", e.target.value)} />
+          </>
+        )}
         <label htmlFor="fNote">心得</label>
         <textarea
           id="fNote"

@@ -5,7 +5,7 @@ import { z } from "zod";
 import type { Book, Prediction, Suggestion } from "../types.ts";
 import { HttpError } from "./errors.ts";
 import { best, defaultProviders, searchAll } from "./lookup.ts";
-import { clampScore, dropOwned, shelfPrompt, SYSTEM_PROMPT } from "./recommend.ts";
+import { clampScore, dropOwned, shelfPrompt, SYSTEM_PROMPT, type ApiMessage } from "./recommend.ts";
 
 const MODEL = "claude-sonnet-5-5";
 
@@ -17,7 +17,7 @@ function getClient(): Anthropic {
   return client;
 }
 
-async function ask<T>(books: Book[], question: string, schema: z.ZodType<T>): Promise<T> {
+async function ask<T>(books: Book[], messages: ApiMessage[], schema: z.ZodType<T>, instructions?: string): Promise<T> {
   let res;
   try {
     res = await getClient().beta.messages.parse({
@@ -29,10 +29,11 @@ async function ask<T>(books: Book[], question: string, schema: z.ZodType<T>): Pr
       output_config: { effort: "medium", format: betaZodOutputFormat(schema) },
       system: [
         { type: "text", text: SYSTEM_PROMPT },
-        // 書櫃內容放在 system 最後並快取：連續查詢時不用重新計算
+        // 書櫃內容快取起來：連續查詢（推測與聊天共用）時不用重新計算
         { type: "text", text: shelfPrompt(books), cache_control: { type: "ephemeral" } },
+        ...(instructions ? [{ type: "text" as const, text: instructions }] : []),
       ],
-      messages: [{ role: "user", content: question }],
+      messages,
     });
   } catch (e) {
     if (e instanceof Anthropic.AuthenticationError) throw new HttpError(500, "ANTHROPIC_API_KEY 無效");
@@ -56,8 +57,9 @@ async function ask<T>(books: Book[], question: string, schema: z.ZodType<T>): Pr
 
 const PredictionSchema = z.object({
   known: z.boolean().describe("是否確定這本書存在且了解其內容"),
-  title: z.string().describe("正式書名"),
-  author: z.string(),
+  title: z.string().describe("台灣最常見的繁體中文書名，不要加括號、原文或別名"),
+  original_title: z.string().describe("原文書名；本身就是中文書時留空字串"),
+  author: z.string().describe("作者名，有中文譯名時用中文譯名，不要加括號"),
   score: z.number().describe("0 到 100 的整數，使用者會喜歡的程度"),
   reason: z.string().describe("2 到 3 句，說明依據"),
   based_on: z.array(z.string()).describe("判斷時主要參考的已評價書名，最多 3 本"),
@@ -66,39 +68,46 @@ const PredictionSchema = z.object({
 export async function predict(books: Book[], query: string): Promise<Prediction> {
   const r = await ask(
     books,
-    `推測使用者會多喜歡這本書：「${query}」。\n分析它的主題、文體、風格，對照使用者喜歡與不喜歡的書，給 0–100 分。`,
+    [
+      {
+        role: "user",
+        content: `推測使用者會多喜歡這本書：「${query}」。\n分析它的主題、文體、風格，對照使用者喜歡與不喜歡的書，給 0–100 分。`,
+      },
+    ],
     PredictionSchema,
   );
   return { ...r, score: clampScore(r.score), based_on: r.based_on.slice(0, 3) };
 }
 
-// ---- 為我推薦 ----
+// ---- 幫我挑書（聊天） ----
 
-const SuggestionsSchema = z.object({
-  items: z.array(
-    z.object({
-      title: z.string(),
-      author: z.string(),
-      reason: z.string().describe("一句話，點出跟哪本喜歡的書相近"),
-      based_on: z.array(z.string()).describe("相近的已評價書名，最多 3 本"),
-    }),
-  ),
+const ChatSchema = z.object({
+  message: z.string().describe("給使用者的回覆，1 到 3 句，口語自然"),
+  items: z
+    .array(
+      z.object({
+        title: z.string(),
+        author: z.string(),
+        score: z.number().describe("0 到 100 的整數，推測使用者會喜歡的程度"),
+        reason: z.string().describe("一句話，點出跟哪本喜歡的書相近"),
+        based_on: z.array(z.string()).describe("相近的已評價書名，最多 3 本"),
+      }),
+    )
+    .describe("這次推薦的書；只是聊天或追問時可以是空陣列"),
 });
 
-const SUGGEST_COUNT = 6;
+const CHAT_INSTRUCTIONS = `這是一段選書聊天。依照使用者最新的訊息回應：
+- 要推薦書時，給 3 到 6 本不在書櫃上（包含想讀清單）、確實存在的書，優先選有繁體中文版的書，避開跟「不喜歡」「沒想法」「棄讀」相似的書，也不要重複之前已經推薦過的書。
+- 使用者追問某本書、或需求不清楚時，可以只回覆訊息、不推薦書（items 為空陣列）。
+- message 用聊天的語氣，簡短說明這次的挑書方向。`;
 
-export async function suggest(books: Book[], hint: string): Promise<Suggestion[]> {
-  const r = await ask(
-    books,
-    `推薦 ${SUGGEST_COUNT + 2} 本使用者可能會喜歡、不在書櫃上、確實存在的書，優先選有繁體中文版的書，避開跟「不喜歡」「沒想法」相似的書。` +
-      (hint ? `\n使用者這次的需求：${hint}` : ""),
-    SuggestionsSchema,
-  );
-  const items = dropOwned(r.items, books).slice(0, SUGGEST_COUNT);
+export async function chat(books: Book[], messages: ApiMessage[]): Promise<{ message: string; items: Suggestion[] }> {
+  const r = await ask(books, messages, ChatSchema, CHAT_INSTRUCTIONS);
+  const items = dropOwned(r.items, books).slice(0, 6);
 
   // 用書籍資料庫確認每一本，順便帶入封面與簡介；查不到的標示為未確認
   const providers = defaultProviders();
-  return Promise.all(
+  const verified = await Promise.all(
     items.map(async (it): Promise<Suggestion> => {
       let match = null;
       try {
@@ -106,7 +115,14 @@ export async function suggest(books: Book[], hint: string): Promise<Suggestion[]
       } catch {
         /* 查詢失敗就當作未確認 */
       }
-      return { ...it, based_on: it.based_on.slice(0, 3), verified: Boolean(match), book: match ?? undefined };
+      return {
+        ...it,
+        score: clampScore(it.score),
+        based_on: it.based_on.slice(0, 3),
+        verified: Boolean(match),
+        book: match ?? undefined,
+      };
     }),
   );
+  return { message: r.message, items: verified };
 }

@@ -1,8 +1,9 @@
 import type { Metadata, Viewport } from "next";
+import AppProvider from "@/components/AppProvider";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "書櫃 · nextread",
+  title: "nextread",
   description: "個人閱讀紀錄與書籍推薦",
 };
 
@@ -22,7 +23,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@500;700&display=swap"
         />
       </head>
-      <body>{children}</body>
+      <body>
+        <AppProvider>{children}</AppProvider>
+      </body>
     </html>
   );
 }
