@@ -24,8 +24,8 @@ export default function Login({ onLogin }: { onLogin: () => void }) {
 
   return (
     <form className="login" onSubmit={submit}>
-      <h1>書櫃</h1>
-      <p>輸入密碼開啟你的書櫃。</p>
+      <h1>nextread</h1>
+      <p>下一本，讀什麼？輸入密碼開啟你的書櫃。</p>
       {/* 隱藏的帳號欄位讓密碼管理器可以記住這組密碼 */}
       <input type="text" name="username" autoComplete="username" defaultValue="nextread" hidden readOnly />
       <label htmlFor="password">密碼</label>

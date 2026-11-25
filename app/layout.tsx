@@ -3,13 +3,22 @@ import AppProvider from "@/components/AppProvider";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "nextread",
-  description: "個人閱讀紀錄與書籍推薦",
+  title: {
+    default: "nextread｜下一本，讀什麼？",
+    template: "%s｜nextread",
+  },
+  description: "記錄讀過的每一本書，依照你的口味推薦下一本。",
+  applicationName: "nextread",
+  appleWebApp: { title: "nextread", statusBarStyle: "default" },
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f1eee8" },
+    { media: "(prefers-color-scheme: dark)", color: "#151412" },
+  ],
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
