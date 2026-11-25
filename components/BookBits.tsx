@@ -1,12 +1,26 @@
 "use client";
 
 // 共用的小元件：封面、評價標籤、書籍列。
+import { useState } from "react";
+import { hiResCover } from "@/lib/cover";
 import { RATING_LABEL, STATUS_LABEL, type Book, type Rating, type RatingKey } from "@/lib/types";
 
 export function Cover({ src, title, size = "sm" }: { src?: string; title: string; size?: "sm" | "md" | "lg" }) {
-  return src ? (
+  // 先用高解析度版本，載入失敗時退回原本的網址，再失敗就顯示書名首字
+  const [attempt, setAttempt] = useState(0);
+  const candidates = src ? [...new Set([hiResCover(src), src])] : [];
+  const current = candidates[attempt];
+  return current ? (
     // eslint-disable-next-line @next/next/no-img-element
-    <img className={`cover cover-${size}`} src={src} alt="" loading="lazy" referrerPolicy="no-referrer" />
+    <img
+      key={current}
+      className={`cover cover-${size}`}
+      src={current}
+      alt=""
+      loading="lazy"
+      referrerPolicy="no-referrer"
+      onError={() => setAttempt((a) => a + 1)}
+    />
   ) : (
     <span className={`cover cover-${size} ph`} aria-hidden>
       {title.slice(0, 1)}

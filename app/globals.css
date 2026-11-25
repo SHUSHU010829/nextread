@@ -302,7 +302,6 @@ textarea { min-height: 84px; resize: vertical; }
 .result .t { font: 500 14px/1.4 var(--serif); }
 .result .a { color: var(--muted); font-size: 12px; }
 .result .d { color: var(--muted); font-size: 12px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.picked { display: flex; gap: 12px; align-items: center; margin-top: 12px; }
 .rec-note { display: flex; flex-direction: column; gap: 4px; background: var(--accent-soft); border-radius: 12px; padding: 10px 14px; font-size: 13px; margin-bottom: 6px; }
 .rec-note-head { font-weight: 500; }
 .rec-note-head b { margin-left: 8px; color: var(--accent); }
